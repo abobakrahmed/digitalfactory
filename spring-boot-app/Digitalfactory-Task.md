@@ -17,17 +17,17 @@ This repository contains a Spring Boot application that connects to an Azure MyS
 
 ## **Application Overview** {#application-overview}
 
-The application is a simple Spring Boot API that connects to an Azure MySQL database. It exposes a `/live` endpoint for health checks to ensure the application can connect to the database.
+The application is a simple Spring Boot API that connects to an Azure MySQL database. It exposes a /live endpoint for health checks to ensure the application can connect to the database.
 
-### **`/live` Endpoint Responses:**
+### /live **Endpoint Responses:**
 
 * **"Well done"**: When the application successfully connects to the database.  
 * **"Maintenance"**: When there is an issue connecting to the database.
 
 ### **Environment Variables:**
 
-* `PORT`: The port on which the Spring Boot application listens.  
-* `DATABASE_URL`: The JDBC connection string for connecting to the Azure MySQL database.
+* PORT: The port on which the Spring Boot application listens.  
+* DATABASE\_URL: The JDBC connection string for connecting to the Azure MySQL database.
 
 ---
 
