@@ -1,0 +1,67 @@
+trigger:
+  branches:
+    include:
+      - dev  # Trigger pipeline on push to main branch
+
+variables:
+  # Define variables for reusability
+  azureSubscription: '<your-azure-devops-service-connection>'
+  containerRegistry: '<your-container-registry-name>'  # E.g., myregistry.azurecr.io
+  containerRepository: 'springboot-app'                # Name of the app's container image
+  azureResourceGroup: '<your-resource-group>'
+  containerAppEnvironment: '<your-container-app-environment>'
+  containerAppName: '<your-container-app-name>'
+
+stages:
+  - stage: Build_and_Push_Image
+    displayName: "Build and Push Docker Image"
+    jobs:
+      - job: Build
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: DockerInstaller@0
+            displayName: "Install Docker"
+
+          # Log in to Azure Container Registry (ACR)
+          - task: AzureCLI@2
+            displayName: "Login to Azure Container Registry"
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(containerRegistry)
+
+          # Build Docker image from Dockerfile
+          - task: Docker@2
+            displayName: "Build Docker Image"
+            inputs:
+              containerRegistry: $(containerRegistry)
+              repository: $(containerRepository)
+              command: buildAndPush
+              Dockerfile: '**/Dockerfile'
+              tags: |
+                latest
+
+  - stage: Deploy_to_Container_App
+    displayName: "Deploy to Azure Container App"
+    dependsOn: Build_and_Push_Image
+    jobs:
+      - job: Deploy
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          # Deploy the container to Azure Container Apps
+          - task: AzureCLI@2
+            displayName: "Deploy to Azure Container Apps"
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az containerapp update \
+                  --name $(containerAppName) \
+                  --resource-group $(azureResourceGroup) \
+                  --environment $(containerAppEnvironment) \
+                  --image $(containerRegistry)/$(containerRepository):latest
