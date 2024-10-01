@@ -1,119 +1,271 @@
----
 
-# **Spring Boot Application Deployment with Azure DevOps, Terraform, and Azure Container Apps**
+# Spring Boot Application Deployment with Azure DevOps, Terraform, and Azure Container Apps
 
 This repository contains a Spring Boot application that connects to an Azure MySQL database. The infrastructure is provisioned using Terraform, the application is containerized using Docker, and the CI/CD pipeline is implemented using Azure DevOps.
 
-## **Table of Contents**
+## Table of Contents
 
-1. [Application Overview](#application-overview)  
-2. [Dockerfile](#dockerfile)  
-3. [Health Check Script](#health-check-script)  
-4. [Terraform Structure](#terraform-structure)  
-5. [Azure DevOps Pipeline](#azure-devops-pipeline)  
+1. [Application Overview](#application-overview)
+2. [Dockerfile](#dockerfile)
+3. [Health Check Script](#health-check-script)
+4. [Terraform Structure](#terraform-structure)
+5. [Azure DevOps Pipeline](#azure-devops-pipeline)
 6. [Setup and Deployment](#setup-and-deployment)
+7. [Download and Installation](#download-and-installation)
+8. [License](#license)
 
 ---
 
-## **Application Overview** {#application-overview}
+## Application Overview
 
-The application is a simple Spring Boot API that connects to an Azure MySQL database. It exposes a /live endpoint for health checks to ensure the application can connect to the database.
+The application is a simple Spring Boot API that connects to an Azure MySQL database. It exposes a `/live` endpoint for health checks to ensure the application can connect to the database.
 
-### /live **Endpoint Responses:**
+### `/live` Endpoint Responses:
+- **"Well done"**: When the application successfully connects to the database.
+- **"Maintenance"**: When there is an issue connecting to the database.
 
-* **"Well done"**: When the application successfully connects to the database.  
-* **"Maintenance"**: When there is an issue connecting to the database.
-
-### **Environment Variables:**
-
-* PORT: The port on which the Spring Boot application listens.  
-* DATABASE\_URL: The JDBC connection string for connecting to the Azure MySQL database.
+### Environment Variables:
+- `PORT`: The port on which the Spring Boot application listens.
+- `DATABASE_URL`: The JDBC connection string for connecting to the Azure MySQL database.
 
 ---
 
-## **Dockerfile** {#dockerfile}
+## Dockerfile
 
 The **Dockerfile** is a multi-stage build that compiles the Spring Boot application using Gradle and runs it on an Alpine-based JDK 17 image.
 
-### **Dockerfile Overview:**
+### Dockerfile Overview:
 
-| \# Stage 1: Build the applicationFROM gradle:7.4.2\-jdk17 as builder\# Set the working directory inside the containerWORKDIR /app\# Copy the Gradle wrapper, settings, and build files first (to leverage Docker layer caching)COPY build.gradle settings.gradle /app/\# Download all dependencies before copying the source code to take advantage of Docker cachingRUN gradle build \--no-daemon || return 0\# Copy the rest of the application codeCOPY . /app\# Build the application (this will create the jar file)RUN gradle build \--no-daemon \-x test\# Stage 2: Run the applicationFROM openjdk:17\-jdk-alpine\# Set the working directory inside the containerWORKDIR /app\# Copy the built JAR file from the builder stageCOPY \--from=builder /app/build/libs/\*.jar app.jar\#\# Copy the health check script into the containerCOPY health\_check.sh /app/health\_check.sh\# Verify the script is copied and check the file pathRUN ls \-la /app/health\_check.sh\# Set the active Spring profileENV SPRING\_PROFILES\_ACTIVE=dev\# Expose the application port (default for Spring Boot is 8080\)EXPOSE 8080\# Ensure the health check script is executableRUN chmod \+x /app/health\_check.sh\# Run both the application and the health check script in the backgroundCMD \["sh", "-c", "java \-jar app.jar & /app/health\_check.sh"\] |
-| :---- |
+\`\`\`dockerfile
+# Stage 1: Build the application
+FROM gradle:7.4.2-jdk17 as builder
 
-### **How to Build and Run the Docker Image:**
+WORKDIR /app
+COPY build.gradle settings.gradle /app/
+RUN gradle build --no-daemon || return 0
+COPY . /app
+RUN gradle build --no-daemon
 
-**Build the Docker image**:
+# Stage 2: Run the application
+FROM openjdk:17-jdk-alpine
+WORKDIR /app
+COPY --from=builder /app/build/libs/*.jar app.jar
 
-| docker build \-t springboot-app . |
-| :---- |
+# Set active Spring profile
+ENV SPRING_PROFILES_ACTIVE=prod
 
-**Run the Docker container**:
+# Expose port and run the application
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
+\`\`\`
 
-| docker run \-p 8080:8080 springboot-app |
-| :---- |
+### How to Build and Run the Docker Image:
 
-## **Health Check Script** {#health-check-script}
+1. **Build the Docker image**:
+    \`\`\`bash
+    docker build -t springboot-app .
+    \`\`\`
 
-The **`health_check.sh`** script continuously monitors the health of the application by sending requests to the `/live` endpoint to ensure the application is connected to the database.
+2. **Run the Docker container**:
+    \`\`\`bash
+    docker run -p 8080:8080 springboot-app
+    \`\`\`
 
-| \#\!/bin/bash\# URL of the health check endpoint for your Spring Boot applicationHEALTH\_URL="http://localhost:8080/live"\# Function to check the database connection via the /live endpointcheck\_database() {    \# Make the HTTP request to the /live endpoint    response=$(curl \-s $HEALTH\_URL)    \# Check if the response is "Well done" (meaning the database is accessible)    if \[\[ "$response" \== "Well done" \]\]; then        echo "$(date) \- Database connection to Azure MySQL successful: $response"        return 0    else        echo "$(date) \- Database connection to Azure MySQL failed: $response"        return 1    fi}\# Loop to continuously check every 30 secondswhile true; do    check\_database    \# If the database connection fails, log the issue or send an alert    if \[ $? \-ne 0 \]; then        echo "ALERT: Database connection issue detected at $(date)"        \# Optionally, add alerting mechanism here (e.g., send email, webhook, etc.)    fi    \# Wait for 30 seconds before the next check    sleep 30done |
-| :---- |
+---
 
-## **Terraform Structure** {#terraform-structure}
+## Health Check Script
+
+The **\`health_check.sh\`** script continuously monitors the health of the application by sending requests to the `/live` endpoint to ensure the application is connected to the database.
+
+### health_check.sh:
+
+\`\`\`bash
+#!/bin/bash
+
+HEALTH_URL="http://localhost:8080/live"
+
+check_database() {
+    response=$(curl -s $HEALTH_URL)
+    if [[ "$response" == "Well done" ]]; then
+        echo "Database connection successful: $response"
+        return 0
+    else
+        echo "Database connection failed: $response"
+        return 1
+    fi
+}
+
+while true; do
+    check_database
+    if [ $? -ne 0 ]; then
+        echo "ALERT: Database connection issue detected at $(date)"
+    fi
+    sleep 30
+done
+\`\`\`
+
+### How to Use:
+The script runs continuously and logs database connection issues. It can be included in your Docker image or run separately to monitor the application's connection to Azure MySQL.
+
+---
+
+## Terraform Structure
 
 The infrastructure is provisioned using **Terraform**. It includes an Azure Container App, MySQL Flexible Server, Azure Container Registry (ACR), Virtual Network (VNet), and Log Analytics for monitoring.
 
-| ├── main.tf                \# Main entry point for modules├── variables.tf           \# Variables for the deployment├── outputs.tf             \# Outputs after Terraform run├── providers.tf           \# Azure provider configuration├── network.tf             \# Networking components (VNet, Subnets)├── compute.tf             \# Azure Container Apps and ACR setup├── database.tf            \# Azure MySQL setup├── monitoring.tf          \# Log Analytics and monitoring configuration├── scaling.tf             \# Autoscaling rules├── security.tf            \# Security configurations (RBAC, SSL) |
-| :---- |
+### Directory Structure:
 
-### **Key Terraform Components:**
+\`\`\`
+.
+├── main.tf                # Main entry point for modules
+├── variables.tf           # Variables for the deployment
+├── outputs.tf             # Outputs after Terraform run
+├── providers.tf           # Azure provider configuration
+├── network.tf             # Networking components (VNet, Subnets)
+├── compute.tf             # Azure Container Apps and ACR setup
+├── database.tf            # Azure MySQL setup
+├── monitoring.tf          # Log Analytics and monitoring configuration
+├── scaling.tf             # Autoscaling rules
+├── security.tf            # Security configurations (RBAC, SSL)
+└── terraform.tfvars       # Variables values (secrets not included here)
+\`\`\`
 
-* **Azure Container App**: Hosts the containerized Spring Boot application.  
-* **Azure MySQL Flexible Server**: Used for the application's database.  
-* **Azure Container Registry (ACR)**: Stores the Docker images.  
-* **Virtual Network**: Secures MySQL with private endpoints.  
-* **Log Analytics**: Enables logging and monitoring for the application.
+### Key Terraform Components:
 
-## **Azure DevOps Pipeline** {#azure-devops-pipeline}
+- **Azure Container App**: Hosts the containerized Spring Boot application.
+- **Azure MySQL Flexible Server**: Used for the application's database.
+- **Azure Container Registry (ACR)**: Stores the Docker images.
+- **Virtual Network**: Secures MySQL with private endpoints.
+- **Log Analytics**: Enables logging and monitoring for the application.
 
-The Azure DevOps pipeline automates the building, pushing, and deployment of the 
+---
 
-| Dockerized Spring Boot application to Azure Container Apps.trigger:  branches:    include:      \- devvariables:  azureSubscription: '\<your-azure-devops-service-connection\>'  containerRegistry: '\<your-container-registry-name\>'  containerRepository: 'springboot-app'  azureResourceGroup: '\<your-resource-group\>'  containerAppEnvironment: '\<your-container-app-environment\>'  containerAppName: '\<your-container-app-name\>'stages:  \- stage: Build\_and\_Push\_Image    jobs:      \- job: Build        steps:          \- task: DockerInstaller@0          \- task: AzureCLI@2            inputs:              azureSubscription: $(azureSubscription)              scriptLocation: inlineScript              inlineScript: |                az acr login \--name $(containerRegistry)          \- task: Docker@2            inputs:              containerRegistry: $(containerRegistry)              repository: $(containerRepository)              command: buildAndPush              Dockerfile: '\*\*/Dockerfile'              tags: |                latest  \- stage: Deploy\_to\_Container\_App    dependsOn: Build\_and\_Push\_Image    jobs:      \- job: Deploy        steps:          \- task: AzureCLI@2            inputs:              azureSubscription: $(azureSubscription)              scriptLocation: inlineScript              inlineScript: |                az containerapp update \\                  \--name $(containerAppName) \\                  \--resource-group $(azureResourceGroup) \\                  \--environment $(containerAppEnvironment) \\                  \--image $(containerRegistry)/$(containerRepository):latest |
-| :---- |
+## Azure DevOps Pipeline
 
-## **Setup and Deployment** {#setup-and-deployment}
+The Azure DevOps pipeline automates the building, pushing, and deployment of the Dockerized Spring Boot application to Azure Container Apps.
 
-### **Step 1: Clone the Repository**
+### Pipeline Overview (YAML):
+
+\`\`\`yaml
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  azureSubscription: '<your-azure-devops-service-connection>'
+  containerRegistry: '<your-container-registry-name>'
+  containerRepository: 'springboot-app'
+  azureResourceGroup: '<your-resource-group>'
+  containerAppEnvironment: '<your-container-app-environment>'
+  containerAppName: '<your-container-app-name>'
+
+stages:
+  - stage: Build_and_Push_Image
+    jobs:
+      - job: Build
+        steps:
+          - task: DockerInstaller@0
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(containerRegistry)
+          - task: Docker@2
+            inputs:
+              containerRegistry: $(containerRegistry)
+              repository: $(containerRepository)
+              command: buildAndPush
+              Dockerfile: '**/Dockerfile'
+              tags: |
+                latest
+
+  - stage: Deploy_to_Container_App
+    dependsOn: Build_and_Push_Image
+    jobs:
+      - job: Deploy
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptLocation: inlineScript
+              inlineScript: |
+                az containerapp update                   --name $(containerAppName)                   --resource-group $(azureResourceGroup)                   --environment $(containerAppEnvironment)                   --image $(containerRegistry)/$(containerRepository):latest
+\`\`\`
+
+### Key Features:
+- **Build Docker image**: Builds the Docker image from the repository using the Dockerfile.
+- **Push to ACR**: Pushes the built Docker image to **Azure Container Registry (ACR)**.
+- **Deploy to Azure Container Apps**: Deploys the container image from ACR to **Azure Container Apps**.
+
+---
+
+## Setup and Deployment
+
+### Step 1: Clone the Repository
 
 Clone this repository to your local machine:
 
-| git clone https://github.com/abobakrahmed/digitalfactory.gitcd digitalfactory |
-| :---- |
+\`\`\`bash
+git clone <repository-url>
+cd <repository-directory>
+\`\`\`
 
-### **Step 2: Build and Run Locally (Optional)**
+### Step 2: Build and Run Locally (Optional)
 
 You can build and run the Dockerized Spring Boot application locally:
 
-| docker build \-t springboot-app .docker run \-p 8080:8080 springboot-app |
-| :---- |
+\`\`\`bash
+docker build -t springboot-app .
+docker run -p 8080:8080 springboot-app
+\`\`\`
 
-### **Step 3: Run Terraform**
+### Step 3: Run Terraform
 
 Run the Terraform scripts to provision the necessary infrastructure:
 
-| terraform initterraform planterraform apply |
-| :---- |
+\`\`\`bash
+terraform init
+terraform plan
+terraform apply
+\`\`\`
 
-Make sure to set your terraform.tfvars file with the appropriate values.
+Make sure to set your \`terraform.tfvars\` file with the appropriate values.
 
-### **Step 4: Azure DevOps Pipeline**
+### Step 4: Azure DevOps Pipeline
 
-1. Set up your Azure DevOps pipeline using the provided azure-pipelines.yml file.  
-2. Trigger the pipeline by pushing changes to the dev branch or manually starting the pipeline.  
+1. Set up your Azure DevOps pipeline using the provided **\`azure-pipelines.yml\`** file.
+2. Trigger the pipeline by pushing changes to the \`main\` branch or manually starting the pipeline.
 3. Monitor the build, push, and deployment steps in Azure DevOps.
 
-### **Step 5: Monitor and Test**
+### Step 5: Monitor and Test
 
-* Use **Azure Monitor** and **Log Analytics** for monitoring.  
-* Use the /live endpoint to check the health of the application.
+- Use **Azure Monitor** and **Log Analytics** for monitoring.
+- Use the **\`/live\`** endpoint to check the health of the application.
 
+---
+
+## Download and Installation
+
+To download the project, clone it directly from the repository:
+
+\`\`\`bash
+git clone https://github.com/your-repo/springboot-app.git
+\`\`\`
+
+For a direct download:
+
+[Download ZIP](https://github.com/your-repo/springboot-app/archive/main.zip)
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
+### Contact
+
+For any issues or inquiries, please reach out to the project maintainer at **[maintainer-email]**.
